@@ -343,7 +343,7 @@ tabs = st.tabs(tabs_titles)
 
 # TAB 1: ORACLE
 with tabs[0]:
-    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT.")
+    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT & CONFIG.")
     else:
         c1, c2 = st.columns([1, 1])
         with c1:
