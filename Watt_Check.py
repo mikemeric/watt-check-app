@@ -252,7 +252,7 @@ with db_connection() as conn:
     cumul = conn.execute("SELECT cumul FROM etats_mensuels WHERE user_id=? AND mois=?", (USER_ID, mois)).fetchone()
     cumul_val = cumul['cumul'] if cumul else 0.0
 
-# SIDEBAR (MIS A JOUR AVEC TUNNEL DE VENTE)
+# SIDEBAR
 with st.sidebar:
     st.markdown(f"### ⚡ {APP_NAME} <span style='font-size:10px'>{VERSION}</span>", unsafe_allow_html=True)
     st.write(f"Bonjour, **{st.session_state.user['username']}**")
@@ -282,7 +282,7 @@ with st.sidebar:
             **COMMENT ACTIVER ?**
             1️⃣ Dépôt OM/MOMO au :
             **671 89 40 95** (Emeric Tchamdjio Nkouetcha)
-            2️⃣ Envoyez la capture sur WhatsApp au même numéro.
+            2️⃣ Envoyez la capture sur WhatsApp.
             3️⃣ Entrez votre code ci-dessous :
             """)
             
@@ -295,131 +295,4 @@ with st.sidebar:
     
     st.markdown("---")
     if st.button("Déconnexion", use_container_width=True): st.session_state.user = None; st.rerun()
-    st.markdown(f"<div style='text-align: center; color: #475569; font-size: 11px; margin-top: 20px;'>Développé par<br><b style='color: #FFD700'>{COMPANY_NAME}</b></div>", unsafe_allow_html=True)
-
-# HEADER
-st.markdown(f"<h1>Tableau de Bord Énergétique</h1>", unsafe_allow_html=True)
-
-tabs_titles = ["🔮 ORACLE", "📜 HISTORIQUE", "⚙️ AUDIT & CONFIG", "👤 PROFIL"]
-if IS_ADMIN: tabs_titles.append("🛠️ ADMIN")
-tabs = st.tabs(tabs_titles)
-
-# TAB 1: ORACLE
-with tabs[0]:
-    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT.")
-    else:
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown("### 🔌 Nouvelle Recharge")
-            with st.form("oracle"):
-                m = st.number_input("Montant (FCFA)", 500, 500000, 5000, step=500)
-                t = st.text_input("Code Token", type="password")
-                if st.form_submit_button("CALCULER", use_container_width=True):
-                    cat = determiner_cat(prof['conso_jour'])
-                    kwh, tva, prix = calcul_kwh(m, cumul_val, cat)
-                    with db_connection() as conn:
-                        new_c = cumul_val + float(kwh)
-                        conn.execute("INSERT OR REPLACE INTO etats_mensuels VALUES (?, ?, ?)", (USER_ID, mois, new_c))
-                        ht = "REF-" + hashlib.sha256(f"{SALT}{t}".encode()).hexdigest()[:8] if t else "N/A"
-                        conn.execute("INSERT INTO historique (user_id, date, montant, kwh, token_ref, cumul_apres) VALUES (?, ?, ?, ?, ?, ?)",
-                                  (USER_ID, datetime.now(FUSEAU).strftime("%d/%m %H:%M"), m, float(kwh), ht, new_c))
-                        conn.commit()
-                    st.success(f"✅ +{kwh:.1f} kWh"); time.sleep(1); st.rerun()
-        
-        with c2:
-            st.markdown("### 📊 État Actuel")
-            st.markdown(f"""<div class="oracle-box"><span style="color:#94a3b8">CUMUL DU MOIS</span><br><span class="big-font">{cumul_val:.1f} kWh</span><br><span style="font-size:12px; color:#3B82F6">Tranche : {determiner_cat(prof['conso_jour'])}</span></div>""", unsafe_allow_html=True)
-            if est_pro:
-                jours = 5 
-                st.info(f"🔮 **PRO :** Coupure estimée le **{(datetime.now(FUSEAU)+timedelta(days=jours)).strftime('%d/%m à %Hh')}**")
-            else: st.warning("🔮 Autonomie env. **5 jours**")
-
-# TAB 2: HISTORIQUE
-with tabs[1]:
-    lim = 100 if est_pro else 3
-    with db_connection() as conn: 
-        df = pd.read_sql("SELECT date as 'Date', montant as 'Montant', kwh as 'kWh', token_ref as 'Ref' FROM historique WHERE user_id=? ORDER BY id DESC LIMIT ?", conn, params=(USER_ID, lim))
-    if not df.empty: st.dataframe(df, use_container_width=True, hide_index=True)
-    else: st.info("Vide.")
-    if not est_pro: st.warning("🔒 Historique limité. Passez PRO.")
-
-# TAB 3: AUDIT & CONFIG
-with tabs[2]:
-    st.write("### 🏗️ Parc Électrique")
-    cat_dict = get_catalogue_pareto()
-    c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
-    with c1: cat = st.selectbox("Catégorie", list(cat_dict.keys()))
-    with c2: 
-        opts = list(cat_dict[cat].keys()); 
-        if est_pro: opts.append("➕ Créer")
-        item = st.selectbox("Appareil", opts)
-    nom=item; p_def=cat_dict[cat].get(item,0)
-    if item=="➕ Créer": nom=st.text_input("Nom"); p_def=st.number_input("W",1,9999,100)
-    with c3: pa = st.number_input("Puissance (Watts)", value=int(p_def), disabled=not est_pro)
-    with c4: 
-        q = st.number_input("Qté", 1, 20, 1)
-        if st.button("Ajouter", use_container_width=True):
-            inv.append({"nom": nom, "p": pa, "q": q, "h": 5.0})
-            with db_connection() as conn: conn.execute("INSERT OR REPLACE INTO profils (user_id, budget, conso_jour, label, config_json) VALUES (?, 0, 0, 'Auto', ?)", (USER_ID, json.dumps(inv))); conn.commit()
-            st.rerun()
-    st.divider()
-    if inv:
-        tp=0; tk=0
-        for i, it in enumerate(inv):
-            cc1, cc2, cc3, cc4 = st.columns([3, 2, 2, 1])
-            with cc1: st.write(f"**{it['nom']}** (x{it['q']})")
-            with cc2: st.write(f"{it['p']} W")
-            with cc3: it['h'] = st.slider(f"Heures", 0., 24., float(it['h']), 0.5, key=f"h_{i}", label_visibility="collapsed")
-            with cc4: 
-                if st.button("🗑️", key=f"d_{i}"):
-                    del inv[i]; 
-                    with db_connection() as conn: conn.execute("UPDATE profils SET config_json=? WHERE user_id=?", (json.dumps(inv), USER_ID)); conn.commit()
-                    st.rerun()
-            tp+=it['p']*it['q']; tk+=(it['p']*it['q']*it['h'])/1000
-        if st.button("💾 Mettre à jour"):
-             with db_connection() as conn: conn.execute("UPDATE profils SET config_json=?, conso_jour=? WHERE user_id=?", (json.dumps(inv), tk, USER_ID)); conn.commit()
-             st.rerun()
-        st.markdown("---")
-        st.metric("Puissance Installée (kW)", f"{tp/1000:.2f} kW")
-
-# TAB 4: PROFIL
-with tabs[3]:
-    st.write("### 👤 Mes Informations")
-    st.caption("Ces informations nous aident à sécuriser votre compte.")
-    
-    curr_u = st.session_state.user
-    with st.form("profil_form"):
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            new_fname = st.text_input("Nom", value=curr_u['first_name'] or "")
-            new_phone = st.text_input("Téléphone", value=curr_u['phone'] or "")
-        with col_p2:
-            new_lname = st.text_input("Prénom", value=curr_u['last_name'] or "")
-            new_meter = st.text_input("Numéro de Compteur", value=curr_u['meter_number'] or "")
-        
-        if st.form_submit_button("💾 ENREGISTRER MES INFOS", use_container_width=True):
-            if update_profile(USER_ID, new_fname, new_lname, new_phone, new_meter):
-                st.success("Profil mis à jour !"); time.sleep(1); st.rerun()
-            else: st.error("Erreur.")
-
-    st.markdown("---")
-    with st.expander("🔒 Modifier mon Mot de passe"):
-        with st.form("pwd_change"):
-            old = st.text_input("Ancien mot de passe", type="password")
-            n1 = st.text_input("Nouveau mot de passe", type="password")
-            n2 = st.text_input("Confirmer le nouveau", type="password")
-            if st.form_submit_button("Changer le mot de passe"):
-                if n1 != n2: st.error("Les mots de passe ne correspondent pas.")
-                elif len(n1) < 4: st.error("Trop court.")
-                elif change_password(USER_ID, old, n1):
-                    st.success("Mot de passe changé ! Reconnexion requise."); time.sleep(2)
-                    st.session_state.user = None; st.rerun()
-                else: st.error("Ancien mot de passe incorrect.")
-
-# TAB 5: ADMIN
-if IS_ADMIN:
-    with tabs[4]:
-        st.header("🛠️ Admin")
-        if st.button("Générer Licence"): st.code(gen_licence(USER_ID))
-
-st.markdown(f"<div class='branding-footer'>© 2026 <span class='company-name'>{COMPANY_NAME}</span> | {APP_NAME} {VERSION}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align: center; color: #475569; font-size: 11px; margin-top: 20px;'>Développé par<br><b style
