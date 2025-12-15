@@ -318,7 +318,7 @@ with st.sidebar:
             st.warning("""
             **COMMENT ACTIVER ?**
             1️⃣ Dépôt OM/MOMO au :
-            **671 89 40 95** (Emeric T.)
+            **671 89 40 95** (Emeric Tchamdjio Nkouetcha)
             2️⃣ Envoyez la capture sur WhatsApp.
             3️⃣ Entrez votre code ci-dessous :
             """)
