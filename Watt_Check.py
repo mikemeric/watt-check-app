@@ -200,7 +200,7 @@ def calcul_kwh(m, c, cat):
 
 if 'user' not in st.session_state: st.session_state.user = None
 
-# A. LOGIN SCREEN (AVEC CONFIRMATION MDP)
+# A. LOGIN SCREEN
 if not st.session_state.user:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
@@ -252,7 +252,7 @@ with db_connection() as conn:
     cumul = conn.execute("SELECT cumul FROM etats_mensuels WHERE user_id=? AND mois=?", (USER_ID, mois)).fetchone()
     cumul_val = cumul['cumul'] if cumul else 0.0
 
-# SIDEBAR
+# SIDEBAR (MIS A JOUR AVEC TUNNEL DE VENTE)
 with st.sidebar:
     st.markdown(f"### ⚡ {APP_NAME} <span style='font-size:10px'>{VERSION}</span>", unsafe_allow_html=True)
     st.write(f"Bonjour, **{st.session_state.user['username']}**")
@@ -261,15 +261,37 @@ with st.sidebar:
         st.error("🛡️ ADMIN")
     elif est_pro: 
         st.success("💎 PRO ACTIVE")
+        st.caption(f"Expiration : {date_fin}")
     else:
-        st.info("👤 GRATUIT")
+        st.info("👤 VERSION GRATUITE")
         st.markdown("---")
-        with st.expander("🔑 Passer PRO"):
-            k = st.text_input("Code Licence")
-            if st.button("Activer"):
+        with st.expander("💎 PASSER PRO (OFFRE)", expanded=False):
+            st.markdown("""
+            <div style='background-color: #f0fdf4; padding: 10px; border-radius: 5px; border: 1px solid #bbf7d0; color: #166534; font-size: 13px; margin-bottom: 10px;'>
+            <b>🚀 DÉBLOQUEZ TOUT :</b><br>
+            ✅ Historique Illimité<br>
+            ✅ Export Excel<br>
+            ✅ Création d'appareils sur mesure
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("### 🏷️ Tarif : 5 000 FCFA / an")
+            st.caption("Investissez une fois, économisez toute l'année.")
+            
+            st.warning("""
+            **COMMENT ACTIVER ?**
+            1️⃣ Dépôt OM/MOMO au :
+            **671 89 40 95** (Emeric T.)
+            2️⃣ Envoyez la capture sur WhatsApp au même numéro.
+            3️⃣ Entrez votre code ci-dessous :
+            """)
+            
+            k = st.text_input("Saisir le Code Licence", placeholder="Ex: PRO-2026-...")
+            
+            if st.button("ACTIVER LA LICENCE", type="primary", use_container_width=True):
                 ok, d = act_licence(USER_ID, k.strip())
                 if ok: st.balloons(); st.rerun()
-                else: st.error("Invalide")
+                else: st.error("Code invalide ou déjà utilisé.")
     
     st.markdown("---")
     if st.button("Déconnexion", use_container_width=True): st.session_state.user = None; st.rerun()
@@ -278,14 +300,13 @@ with st.sidebar:
 # HEADER
 st.markdown(f"<h1>Tableau de Bord Énergétique</h1>", unsafe_allow_html=True)
 
-# MODIF NOM ONGLET
 tabs_titles = ["🔮 ORACLE", "📜 HISTORIQUE", "⚙️ AUDIT & CONFIG", "👤 PROFIL"]
 if IS_ADMIN: tabs_titles.append("🛠️ ADMIN")
 tabs = st.tabs(tabs_titles)
 
 # TAB 1: ORACLE
 with tabs[0]:
-    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT & CONFIG.")
+    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT.")
     else:
         c1, c2 = st.columns([1, 1])
         with c1:
@@ -334,7 +355,6 @@ with tabs[2]:
         item = st.selectbox("Appareil", opts)
     nom=item; p_def=cat_dict[cat].get(item,0)
     if item=="➕ Créer": nom=st.text_input("Nom"); p_def=st.number_input("W",1,9999,100)
-    # MODIF : Ajout de l'unité explicite dans le label
     with c3: pa = st.number_input("Puissance (Watts)", value=int(p_def), disabled=not est_pro)
     with c4: 
         q = st.number_input("Qté", 1, 20, 1)
@@ -348,7 +368,6 @@ with tabs[2]:
         for i, it in enumerate(inv):
             cc1, cc2, cc3, cc4 = st.columns([3, 2, 2, 1])
             with cc1: st.write(f"**{it['nom']}** (x{it['q']})")
-            # Unité explicite dans la liste
             with cc2: st.write(f"{it['p']} W")
             with cc3: it['h'] = st.slider(f"Heures", 0., 24., float(it['h']), 0.5, key=f"h_{i}", label_visibility="collapsed")
             with cc4: 
@@ -361,7 +380,6 @@ with tabs[2]:
              with db_connection() as conn: conn.execute("UPDATE profils SET config_json=?, conso_jour=? WHERE user_id=?", (json.dumps(inv), tk, USER_ID)); conn.commit()
              st.rerun()
         st.markdown("---")
-        # Unité explicite dans le Bilan
         st.metric("Puissance Installée (kW)", f"{tp/1000:.2f} kW")
 
 # TAB 4: PROFIL
