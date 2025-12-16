@@ -14,7 +14,7 @@ from decimal import Decimal, getcontext
 from contextlib import contextmanager
 
 # --- 0. CONFIGURATION SYSTÈME & BRANDING ---
-VERSION = "v1.0"
+VERSION = "v1.1" # Version Sauvegarde
 APP_NAME = "WATT-CHECK"
 COMPANY_NAME = "DI-SOLUTIONS"
 
@@ -48,12 +48,11 @@ def load_css():
         /* 2. TITRES SPÉCIFIQUES */
         h1 { 
             font-family: 'Orbitron', sans-serif !important; 
-            color: #D97706 !important; /* Or foncé pour être lisible sur blanc */
+            color: #D97706 !important; /* Or foncé */
             text-shadow: none !important;
         }
 
         /* 3. CARTES & BOITES (FOND SOMBRE) */
-        /* On inverse la couleur du texte UNIQUEMENT à l'intérieur des boites sombres */
         .stMetric, .history-card, .oracle-box, .result-box, [data-testid="stMetric"] {
             background-color: #1E293B !important; /* Fond bleu nuit */
             border: 1px solid #334155 !important;
@@ -88,9 +87,6 @@ def load_css():
             text-align: center; color: #64748B !important; font-size: 12px; margin-top: 50px; 
             border-top: 1px solid #E2E8F0; padding-top: 20px;
         }
-        
-        /* 7. ALERTES (Success/Error/Info/Warning) - Texte noir */
-        .stAlert div, .stAlert p { color: #000000 !important; }
     </style>
     """
 st.markdown(load_css(), unsafe_allow_html=True)
@@ -285,7 +281,8 @@ est_pro, date_fin = check_pro_status(user)
 
 with db_connection() as conn:
     user_fresh = conn.execute("SELECT * FROM users WHERE id=?", (USER_ID,)).fetchone()
-    st.session_state.user = dict(user_fresh)
+    st.session_state.user = dict(user_fresh) if user_fresh else None
+    if st.session_state.user is None: st.rerun() # Securité si user supprimé
     prof = dict(conn.execute("SELECT * FROM profils WHERE user_id=?", (USER_ID,)).fetchone() or {})
     inv = json.loads(prof.get('config_json', '[]')) if prof else []
     mois = datetime.now(FUSEAU).strftime("%Y-%m")
@@ -312,19 +309,15 @@ with st.sidebar:
             ✅ Export Excel
             ✅ Création d'appareils sur mesure
             """)
-            
             st.markdown("### 🏷️ Tarif : 5 000 FCFA / an")
-            
             st.warning("""
             **COMMENT ACTIVER ?**
             1️⃣ Dépôt OM/MOMO au :
-            **671 89 40 95** (Emeric Tchamdjio Nkouetcha)
+            **671 89 40 95** (Emeric T.)
             2️⃣ Envoyez la capture sur WhatsApp.
             3️⃣ Entrez votre code ci-dessous :
             """)
-            
             k = st.text_input("Saisir le Code Licence", placeholder="Ex: PRO-2026-...")
-            
             if st.button("ACTIVER LA LICENCE", type="primary", use_container_width=True):
                 ok, d = act_licence(USER_ID, k.strip())
                 if ok: st.balloons(); st.rerun()
@@ -343,7 +336,7 @@ tabs = st.tabs(tabs_titles)
 
 # TAB 1: ORACLE
 with tabs[0]:
-    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT & CONFIG.")
+    if not prof: st.warning("👋 Bienvenue ! Commencez par faire votre **Audit Énergétique** dans l'onglet ⚙️ AUDIT.")
     else:
         c1, c2 = st.columns([1, 1])
         with c1:
@@ -362,7 +355,6 @@ with tabs[0]:
                                   (USER_ID, datetime.now(FUSEAU).strftime("%d/%m %H:%M"), m, float(kwh), ht, new_c))
                         conn.commit()
                     st.success(f"✅ +{kwh:.1f} kWh"); time.sleep(1); st.rerun()
-        
         with c2:
             st.markdown("### 📊 État Actuel")
             st.markdown(f"""<div class="oracle-box"><span style="color:#CBD5E1">CUMUL DU MOIS</span><br><span class="big-font">{cumul_val:.1f} kWh</span><br><span style="font-size:12px; color:#93C5FD">Tranche : {determiner_cat(prof['conso_jour'])}</span></div>""", unsafe_allow_html=True)
@@ -423,7 +415,6 @@ with tabs[2]:
 with tabs[3]:
     st.write("### 👤 Mes Informations")
     st.caption("Ces informations nous aident à sécuriser votre compte.")
-    
     curr_u = st.session_state.user
     with st.form("profil_form"):
         col_p1, col_p2 = st.columns(2)
@@ -433,12 +424,10 @@ with tabs[3]:
         with col_p2:
             new_lname = st.text_input("Prénom", value=curr_u['last_name'] or "")
             new_meter = st.text_input("Numéro de Compteur", value=curr_u['meter_number'] or "")
-        
         if st.form_submit_button("💾 ENREGISTRER MES INFOS", use_container_width=True):
             if update_profile(USER_ID, new_fname, new_lname, new_phone, new_meter):
                 st.success("Profil mis à jour !"); time.sleep(1); st.rerun()
             else: st.error("Erreur.")
-
     st.markdown("---")
     with st.expander("🔒 Modifier mon Mot de passe"):
         with st.form("pwd_change"):
@@ -453,10 +442,36 @@ with tabs[3]:
                     st.session_state.user = None; st.rerun()
                 else: st.error("Ancien mot de passe incorrect.")
 
-# TAB 5: ADMIN (STATISTIQUES & SUIVI)
+# TAB 5: ADMIN (AVEC SYSTEME DE SAUVEGARDE)
 if IS_ADMIN:
     with tabs[4]:
         st.header("🛠️ Cockpit de Pilotage")
+        
+        # --- NOUVEAU : SYSTEME DE SAUVEGARDE ---
+        st.error("🚨 ZONE DE DANGER : SAUVEGARDE DES DONNÉES")
+        st.caption("Le serveur Cloud Gratuit efface les données au redémarrage. SAUVEGARDEZ TOUS LES SOIRS.")
+        
+        col_save1, col_save2 = st.columns(2)
+        with col_save1:
+            # BOUTON DOWNLOAD
+            with open(DB_FILE, "rb") as f:
+                btn = st.download_button(
+                    label="📥 TÉLÉCHARGER LA BASE DE DONNÉES (BACKUP)",
+                    data=f,
+                    file_name=f"backup_wattcheck_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+                    mime="application/x-sqlite3",
+                    type="primary"
+                )
+        with col_save2:
+            # UPLOAD RESTAURATION
+            uploaded_db = st.file_uploader("📤 RESTAURER UNE SAUVEGARDE", type=["db"])
+            if uploaded_db is not None:
+                if st.button("⚠️ CONFIRMER LA RESTAURATION"):
+                    with open(DB_FILE, "wb") as f:
+                        f.write(uploaded_db.getbuffer())
+                    st.success("Base de données restaurée !"); time.sleep(1); st.rerun()
+        
+        st.divider()
         
         with db_connection() as conn:
             users_df = pd.read_sql("SELECT id, username, first_name, last_name, phone, is_pro, created_at FROM users WHERE username != 'admin'", conn)
@@ -476,8 +491,7 @@ if IS_ADMIN:
         c1, c2 = st.columns([1, 2])
         with c1:
             st.subheader("🔑 Générer Licence")
-            st.caption("À faire après paiement.")
-            if st.button("✨ CRÉER UN CODE (1 AN)", type="primary"):
+            if st.button("✨ CRÉER UN CODE (1 AN)"):
                 code = gen_licence(USER_ID)
                 st.success(code)
                 st.info("Copiez et envoyez au client.")
